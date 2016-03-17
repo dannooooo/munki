@@ -1,13 +1,13 @@
 #!/usr/bin/python
 # encoding: utf-8
 #
-# Copyright 2011-2014 Greg Neagle.
+# Copyright 2011-2016 Greg Neagle.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#      https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,12 +42,12 @@ class Job(object):
     '''launchd job object'''
 
     def __init__(self, cmd, environment_vars=None):
-        tmpdir = munkicommon.tmpdir
-        LABELPREFIX = 'com.googlecode.munki.'
+        tmpdir = munkicommon.tmpdir()
+        labelprefix = 'com.googlecode.munki.'
         # create a unique id for this job
         jobid = str(uuid.uuid1())
 
-        self.label = LABELPREFIX + jobid
+        self.label = labelprefix + jobid
         self.stdout_path = os.path.join(tmpdir, self.label + '.stdout')
         self.stderr_path = os.path.join(tmpdir, self.label + '.stderr')
         self.plist_path = os.path.join(tmpdir, self.label + '.plist')
@@ -67,11 +67,11 @@ class Job(object):
         os.chown(self.plist_path, 0, 0)
         os.chmod(self.plist_path, int('644', 8))
         launchctl_cmd = ['/bin/launchctl', 'load', self.plist_path]
-        proc = subprocess.Popen(launchctl_cmd, shell=False, bufsize=1,
+        proc = subprocess.Popen(launchctl_cmd, shell=False, bufsize=-1,
                                 stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
-        (unused_out, err) = proc.communicate()
+        err = proc.communicate()[1]
         if proc.returncode:
             raise LaunchdJobException(err)
 
@@ -79,11 +79,7 @@ class Job(object):
         '''Attempt to clean up'''
         if self.plist:
             launchctl_cmd = ['/bin/launchctl', 'unload', self.plist_path]
-            proc = subprocess.Popen(launchctl_cmd, shell=False, bufsize=1,
-                                    stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE)
-            (unused_out, unused_err) = proc.communicate()
+            dummy_result = subprocess.call(launchctl_cmd)
         try:
             self.stdout.close()
             self.stderr.close()
@@ -103,12 +99,12 @@ class Job(object):
                                 stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
-        (unused_out, err) = proc.communicate()
+        err = proc.communicate()[1]
         if proc.returncode:
             raise LaunchdJobException(err)
         else:
             if (not os.path.exists(self.stdout_path) or
-                not os.path.exists(self.stderr_path)):
+                    not os.path.exists(self.stderr_path)):
                 # wait a second for the stdout/stderr files
                 # to be created by launchd
                 time.sleep(1)
@@ -127,7 +123,7 @@ class Job(object):
                                 stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
-        (unused_out, err) = proc.communicate()
+        err = proc.communicate()[1]
         if proc.returncode:
             raise LaunchdJobException(err)
 
@@ -141,11 +137,11 @@ class Job(object):
                                 stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
-        (out, unused_err) = proc.communicate()
-        if proc.returncode or not out:
+        output = proc.communicate()[0]
+        if proc.returncode or not output:
             return info
         else:
-            lines = str(out).splitlines()
+            lines = str(output).splitlines()
             # search launchctl list output for our job label
             job_lines = [item for item in lines
                          if item.endswith('\t' + self.label)]

@@ -4,13 +4,13 @@
 #  MunkiStatus
 #
 #  Created by Greg Neagle on 2/11/10.
-#  Copyright 2010-2014 Greg Neagle.
+#  Copyright 2010-2016 Greg Neagle.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#      https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,6 +23,7 @@
 import os
 import stat
 import subprocess
+from SystemConfiguration import SCDynamicStoreCopyConsoleUser
 
 INSTALLATLOGOUTFILE = "/private/tmp/com.googlecode.munki.installatlogout"
 
@@ -36,7 +37,6 @@ def call(cmd):
 
 
 def getconsoleuser():
-    from SystemConfiguration import SCDynamicStoreCopyConsoleUser
     cfuser = SCDynamicStoreCopyConsoleUser( None, None, None )
     return cfuser[0]
 
@@ -76,7 +76,7 @@ def pythonScriptRunning(scriptname):
     proc = subprocess.Popen(cmd, shell=False, bufsize=1,
                             stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    (out, unused_err) = proc.communicate()
+    (out, dummy_err) = proc.communicate()
     mypid = os.getpid()
     lines = str(out).splitlines()
     for line in lines:

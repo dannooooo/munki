@@ -1,13 +1,13 @@
 #!/usr/bin/python
 # encoding: utf-8
 #
-# Copyright 2008-2014 Greg Neagle.
+# Copyright 2008-2016 Greg Neagle.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#      https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,6 +42,7 @@ from optparse import OptionValueError
 from munkilib import munkicommon
 from munkilib import FoundationPlist
 from munkilib import adobeutils
+from munkilib import profiles
 
 from Foundation import NSDate, NSUserName
 
@@ -113,6 +114,34 @@ def getCatalogInfoFromPath(pkgpath, options):
     return cataloginfo
 
 
+def getCatalogInfoForProfile(profile_path):
+    '''Populates some metadata for profile pkginfo'''
+    cataloginfo = {}
+    profile = profiles.read_profile(profile_path)
+    if profile.get('PayloadType') == 'Configuration':
+        try:
+            cataloginfo['PayloadIdentifier'] = profile['PayloadIdentifier']
+        except (KeyError, AttributeError):
+            # this thing is broken! return the empty info
+            return cataloginfo
+        cataloginfo['name'] = os.path.basename(profile_path)
+        cataloginfo['display_name'] = profile.get(
+            'PayloadDisplayName', cataloginfo['name'])
+        cataloginfo['description'] = profile.get('PayloadDescription', '')
+        cataloginfo['version'] = '1.0'
+        cataloginfo['installer_type'] = 'profile'
+        cataloginfo['uninstallable'] = True
+        cataloginfo['uninstall_method'] = 'remove_profile'
+        cataloginfo['unattended_install'] = True
+        cataloginfo['unattended_uninstall'] = True
+        cataloginfo['minimum_os_version'] = '10.7'
+        cataloginfo['minimum_munki_version'] = '2.2'
+    else:
+        print >> sys.stderr, (
+            'Profile PayloadType is %s' % profile.get('PayloadType'))
+    return cataloginfo
+
+
 def getCatalogInfoFromDmg(dmgpath, options):
     """
     * Mounts a disk image if it's not already mounted
@@ -145,7 +174,7 @@ def getCatalogInfoFromDmg(dmgpath, options):
     if not cataloginfo and not options.item:
         # look for one of the many possible Adobe installer/updaters
         cataloginfo = adobeutils.getAdobeCatalogInfo(mountpoints[0],
-                                                    options.pkgname or '')
+                                                     options.pkgname or '')
 
     if not cataloginfo:
         # maybe this is a drag-n-drop dmg
@@ -356,6 +385,16 @@ def check_mode(option, opt, value, parser):
                                                             (opt, mode))
     setattr(parser.values, option.dest, value)
 
+def has_valid_install_critieria(catinfo):
+    """
+    Inspects compiled catalog info dictionary for valid install criteria.
+    Returns boolean.
+    """
+    return (catinfo.get('installs')
+            or catinfo.get('receipts')
+            or catinfo.get('installcheck_script')
+            or catinfo.get('installer_type') == 'profile'
+            or catinfo.get('installer_type') == 'apple_update_metadata')
 
 def main():
     '''Main routine'''
@@ -426,7 +465,7 @@ def main():
         help=('Path to an optional installcheck script to be '
               'run to determine if item should be installed. '
               'An exit code of 0 indicates installation should occur. '
-              'Takes precendence over installs items and receipts.')
+              'Takes precedence over installs items and receipts.')
         )
     script_options.add_option(
         '--uninstallcheck_script', '--uninstallcheck-script',
@@ -434,7 +473,7 @@ def main():
         help=('Path to an optional uninstallcheck script to be '
               'run to determine if item should be uninstalled. '
               'An exit code of 0 indicates uninstallation should occur. '
-              'Takes precendence over installs items and receipts.')
+              'Takes precedence over installs items and receipts.')
         )
     script_options.add_option(
         '--preinstall_script', '--preinstall-script',
@@ -564,11 +603,15 @@ def main():
     # Adobe package specific options
     adobe_options = optparse.OptionGroup(p, 'Adobe-specific Options')
     adobe_options.add_option(
-        '--uninstallerdmg', '-U',
+        '--uninstallerdmg', '--uninstallerpkg', '--uninstallpkg', '-U',
+        metavar='UNINSTALLERITEM', dest='uninstalleritem',
         help=('If the installer item is a disk image containing an Adobe CS4 '
               'Deployment Toolkit installation package or Adobe CS3 deployment '
-              'package, UNINSTALLERDMG is a path to a disk image containing an '
-              'AdobeUberUninstaller for this item.')
+              'package, UNINSTALLERITEM is a path to a disk image containing '
+              'an AdobeUberUninstaller for this item.\n'
+              'If the installer item is a Creative Cloud Packager install '
+              'package, UNINSTALLERITEM is a path to the matching Creative '
+              'Cloud Packager uninstall package.')
         )
     p.add_option_group(adobe_options)
 
@@ -629,6 +672,12 @@ def main():
         '--autoremove',
         action='store_true',
         help=('Indicates this package should be automatically removed if it is '
+              'not listed in any applicable \'managed_installs\'.')
+        )
+    additional_options.add_option(
+        '--OnDemand',
+        action='store_true',
+        help=('Indicates this package should be an OnDemand package '
               'not listed in any applicable \'managed_installs\'.')
         )
     additional_options.add_option(
@@ -708,6 +757,7 @@ def main():
         )
     p.add_option_group(additional_options)
 
+    sys.argv = [unicode(item, 'utf-8') for item in sys.argv]
     options, arguments = p.parse_args()
 
     if options.version:
@@ -715,7 +765,8 @@ def main():
         exit(0)
 
     if options.verify_options_only:
-        if len(arguments) == 0 and not options.apple_update:
+        if (len(arguments) == 0 and not options.apple_update and
+                not options.nopkg):
             print >> sys.stderr, 'makepkginfo options FAILED verification'
             print >> sys.stderr, 'No installer item was provided.'
             exit(1)
@@ -724,29 +775,35 @@ def main():
             print >> sys.stderr, \
                 'Can process only one installer item at a time.'
             exit(3)
-        if not options.apple_update:
-            print >> sys.stdout, arguments[0]
+        return_dict = {}
+        if options.uninstalleritem:
+            return_dict['uninstalleritem'] = options.uninstalleritem
+        if arguments:
+            return_dict['installeritem'] = arguments[0]
+        if options.apple_update:
+            return_dict['installer_type'] = 'apple_update_metadata'
+        print >> sys.stdout, FoundationPlist.writePlistToString(return_dict)
         exit(0)
 
-    if (len(arguments) == 0
-        and not options.file
-        and not options.nopkg
-        and not options.installer_environment
-        and not options.installcheck_script
-        and not options.uninstallcheck_script
-        and not options.preinstall_script
-        and not options.postinstall_script
-        and not options.preuninstall_script
-        and not options.postuninstall_script
-        and not options.uninstall_script
-        and not options.apple_update):
+    if (len(arguments) == 0 and
+            not options.file and
+            not options.nopkg and
+            not options.installer_environment and
+            not options.installcheck_script and
+            not options.uninstallcheck_script and
+            not options.preinstall_script and
+            not options.postinstall_script and
+            not options.preuninstall_script and
+            not options.postuninstall_script and
+            not options.uninstall_script and
+            not options.apple_update):
         p.print_usage()
         exit(-1)
 
-    if options.minimum_os_version and \
-        not options.minimum_os_version[0].isdigit():
-        print >> sys.stderr, \
-            'Minimum OS Version must start with a number, e.g. 10.7.2.'
+    if (options.minimum_os_version and
+            not options.minimum_os_version[0].isdigit()):
+        print >> sys.stderr, (
+            'Minimum OS Version must start with a number, e.g. 10.7.2.')
         exit(-1)
 
     if len(arguments) > 1:
@@ -790,34 +847,34 @@ def main():
                     itemhash = "N/A"
                 catinfo = getCatalogInfoFromDmg(item, options)
                 if (catinfo and
-                    catinfo.get('installer_type') == "AdobeCS5Installer"):
+                        catinfo.get('installer_type') == "AdobeCS5Installer"):
                     print >> sys.stderr, (
-                        "This disk image appears to contain an Adobe CS5 "
+                        "This disk image appears to contain an Adobe CS5/CS6 "
                         "product install.\n"
                         "Please use Adobe Application Manager, Enterprise "
                         "Edition (AAMEE) to create an installation package "
                         "for this product.")
                     exit(-1)
                 if not catinfo:
-                    print >> sys.stderr, \
-                        "Could not find a supported installer item in %s!" % \
-                         item
+                    print >> sys.stderr, (
+                        "Could not find a supported installer item in %s!"
+                         % item)
                     exit(-1)
 
             elif munkicommon.hasValidPackageExt(item):
                 catinfo = getCatalogInfoFromPath(item, options)
                 if not catinfo:
                     print >> sys.stderr, (
-                        "%s doesn't appear to be a valid installer item!" %
-                         item)
+                        "%s doesn't appear to be a valid installer item!"
+                        % item)
                     exit(-1)
                 if os.path.isdir(item):
                     print >> sys.stderr, (
                         "WARNING: %s is a bundle-style package!\n"
-                        "To use it with munki, you should encapsulate it "
-                        "in a disk image.\n")  % item
+                        "To use it with Munki, you should encapsulate it "
+                        "in a disk image.\n") % item
                     # need to walk the dir and add it all up
-                    for (path, unused_dirs, files) in os.walk(item):
+                    for (path, dummy_dirs, files) in os.walk(item):
                         for name in files:
                             filename = os.path.join(path, name)
                             # use os.lstat so we don't follow symlinks
@@ -825,6 +882,13 @@ def main():
                     # convert to kbytes
                     itemsize = int(itemsize/1024)
 
+            elif munkicommon.hasValidConfigProfileExt(item):
+                catinfo = getCatalogInfoForProfile(item)
+                if not catinfo:
+                    print >> sys.stderr, (
+                        "%s doesn't appear to be a supported configuration "
+                        "profile!" % item)
+                    exit(-1)
             else:
                 print >> sys.stderr, "%s is not a valid installer item!" % item
                 exit(-1)
@@ -849,8 +913,19 @@ def main():
             catinfo['installer_item_location'] = location
 
             # ADOBE STUFF - though maybe generalizable in the future?
-            if options.uninstallerdmg:
-                uninstallerpath = options.uninstallerdmg
+            if (catinfo.get('installer_type') == "AdobeCCPInstaller" and
+                    not options.uninstalleritem):
+                print >> sys.stderr, (
+                    "WARNING: This item appears to be an Adobe Creative "
+                    "Cloud product install.\n"
+                    "No uninstaller package was specified so product "
+                    "removal will not be possible.")
+                catinfo['uninstallable'] = False
+                if 'uninstall_method' in catinfo:
+                    del catinfo['uninstall_method']
+
+            if options.uninstalleritem:
+                uninstallerpath = options.uninstalleritem
                 if os.path.exists(uninstallerpath):
                     # try to generate the correct item location
                     temppath = uninstallerpath
@@ -871,8 +946,8 @@ def main():
                     catinfo['uninstaller_item_size'] = int(itemsize/1024)
                     catinfo['uninstaller_item_hash'] = itemhash
                 else:
-                    print >> sys.stderr, "No uninstaller at %s" % \
-                                        uninstallerpath
+                    print >> sys.stderr, (
+                        "No uninstaller item at %s" % uninstallerpath)
 
             # if we have receipts, assume we can uninstall using them
             if catinfo.get('receipts', None):
@@ -993,6 +1068,8 @@ def main():
         catinfo['autoremove'] = True
     if options.minimum_munki_version:
         catinfo['minimum_munki_version'] = options.minimum_munki_version
+    if options.OnDemand:
+        catinfo['OnDemand'] = True
     if options.unattended_install:
         catinfo['unattended_install'] = True
     if options.unattended_uninstall:
@@ -1052,11 +1129,30 @@ def main():
             catinfo['display_name'] = options.displayname
         catinfo['installer_type'] = 'apple_update_metadata'
 
-# add user/environment metadata
+    # add user/environment metadata
     catinfo['_metadata'] = make_pkginfo_metadata()
+
+    if (len(arguments) == 1 and
+            not has_valid_install_critieria(catinfo)):
+        item = catinfo['name']
+        msg = (
+            "WARNING: pkginfo for '%s' contains no installation check info!\n"
+            "    No useful receipts were detected, and no 'installs' "
+            "items were provided.\n"
+            "    If you do not add an 'installs' item or "
+            "an installcheck_script,\n"
+            "    Munki will have no way to determine the item's installation "
+            "state.\n"
+            "    This can result in repeated installation attempts or failure "
+            "to attempt\n"
+            "    installation at all.")
+        print >> sys.stderr, msg % item
 
     # and now, what we've all been waiting for...
     print FoundationPlist.writePlistToString(catinfo)
+
+    # clean up
+    munkicommon.cleanUpTmpDir()
 
 
 if __name__ == '__main__':

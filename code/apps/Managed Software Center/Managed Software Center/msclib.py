@@ -3,13 +3,13 @@
 #  msclib.py
 #
 #  Created by Greg Neagle on 12/10/13.
-#  Copyright 2010-2014 Greg Neagle.
+#  Copyright 2010-2016 Greg Neagle.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#      https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,7 +24,7 @@ import sys
 
 import shutil
 
-from zipfile import ZipFile
+from zipfile import ZipFile, BadZipfile
 
 from Foundation import *
 from AppKit import *
@@ -73,7 +73,11 @@ def get_custom_resources():
                 os.mkdir(dest_path)
             except (OSError, IOError), err:
                 msclog.debug_log('Error creating %s: %s' % (dest_path, err))
-        archive = ZipFile(source_path)
+        try:
+            archive = ZipFile(source_path)
+        except BadZipfile:
+            # ignore it
+            return
         archive_files = archive.namelist()
         # sanity checking in case the archive is not built correctly
         files_to_extract = [filename for filename in archive_files
@@ -107,7 +111,7 @@ def html_dir():
         cache_dir = u'/private/tmp'
     our_cache_dir = os.path.join(cache_dir, bundle_id)
     if not os.path.exists(our_cache_dir):
-         os.mkdir(our_cache_dir)
+         os.makedirs(our_cache_dir)
     _html_dir = os.path.join(our_cache_dir, 'html')
     if os.path.exists(_html_dir):
         # empty it

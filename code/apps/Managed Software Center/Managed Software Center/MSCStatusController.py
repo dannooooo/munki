@@ -2,13 +2,13 @@
 #
 # MSCStatusController.py
 #
-# Copyright 2009-2014 Greg Neagle.
+# Copyright 2009-2016 Greg Neagle.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#      https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -156,6 +156,8 @@ class MSCStatusController(NSObject):
             #NSApp.activateIgnoringOtherApps_(YES) #? do we really want to do this?
             #self.statusWindowController.window().orderFrontRegardless()
         elif command == 'showRestartAlert':
+            if self.session_started:
+                self.sessionEnded_(0)
             self.doRestartAlert()
         elif command == 'quit':
             self.sessionEnded_(0)
@@ -205,6 +207,7 @@ class MSCStatusController(NSObject):
 
     def doRestartAlert(self):
         '''Display a restart alert -- some item just installed or removed requires a restart'''
+        msclog.log("MSC", "restart_required")
         self._status_restartAlertDismissed = 0
         alert = NSAlert.alertWithMessageText_defaultButton_alternateButton_otherButton_informativeTextWithFormat_(
             NSLocalizedString(u"Restart Required", u"Restart Required title"),
@@ -222,8 +225,9 @@ class MSCStatusController(NSObject):
     def restartAlertDidEnd_returnCode_contextInfo_(
                                         self, alert, returncode, contextinfo):
         '''Called when restartAlert ends'''
+        msclog.log("MSC", "restart_confirmed")
         self._status_restartAlertDismissed = 1
-        # TO-DO: initiate actual restart
+        munki.restartNow()
 
     def setMessage_(self, messageText):
         '''Display main status message'''

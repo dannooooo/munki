@@ -37,7 +37,7 @@ Usage: `basename $0` [-i id] [-r root] [-o dir] [-c package]"
     -i id       Set the base package bundle ID
     -r root     Set the munki source root
     -o dir      Set the output directory
-    -c package  Include a configuration package
+    -c package  Include a configuration package (NOT CURRENTLY IMPLEMENTED)
 
 EOF
 }
@@ -90,7 +90,7 @@ WHICH_GIT_RESULT="$?"
 if [ "$WHICH_GIT_RESULT" != "0" ]; then
     echo "Could not find git in command path. Maybe it's not installed?" 1>&2
     echo "You can get a Git package here:" 1>&2
-    echo "    http://code.google.com/p/git-osx-installer/downloads/list"
+    echo "    https://git-scm.com/download/mac"
     exit 1
 fi
 if [ ! -x "/usr/bin/pkgbuild" ]; then
@@ -306,6 +306,11 @@ chmod -R go-w "$COREROOT/usr/local/munki"
 chmod +x "$COREROOT/usr/local/munki"
 #chmod +x "$COREROOT/usr/local/munki/munkilib/"*.py
 
+# make paths.d file
+mkdir -p "$COREROOT/private/etc/paths.d"
+echo "/usr/local/munki" > "$COREROOT/private/etc/paths.d/munki"
+chmod -R 755 "$COREROOT/private"
+
 # Create directory structure for /Library/Managed Installs.
 mkdir -m 1775 "$COREROOT/Library"
 mkdir -m 755 -p "$COREROOT/Library/Managed Installs"
@@ -341,6 +346,7 @@ done
 # Set permissions.
 chmod -R go-w "$ADMINROOT/usr/local/munki"
 chmod +x "$ADMINROOT/usr/local/munki"
+
 # make paths.d file
 mkdir -p "$ADMINROOT/private/etc/paths.d"
 echo "/usr/local/munki" > "$ADMINROOT/private/etc/paths.d/munki"
@@ -434,20 +440,22 @@ if [ ! -z "$CONFPKG" ]; then
         echo "Flat configuration package not implemented"
         exit 1
     else
-        if [ -d "$CONFPKG/Contents/Resources/English.lproj" ]; then
-            eng_resources="$CONFPKG/Contents/Resources/English.lproj"
-        elif [ -d "$CONFPKG/Contents/Resources/en.lproj" ]; then
-            eng_resources="$CONFPKG/Contents/Resources/en.lproj"
-        else
-            echo "Can't find English.lproj or en.lproj in $CONFPKG/Contents/Resources"
-            exit 1
-        fi
-        CONFTITLE=`defaults read "$eng_resources/Description" IFPkgDescriptionTitle`
-        CONFDESC=`defaults read "$eng_resources/Description" IFPkgDescriptionDescription`
-        CONFID=`defaults read "$CONFPKG/Contents/Info" CFBundleIdentifier`
-        CONFSIZE=`defaults read "$CONFPKG/Contents/Info" IFPkgFlagInstalledSize`
-        CONFVERSION=`defaults read "$CONFPKG/Contents/Info" CFBundleShortVersionString`
-        CONFBASENAME=`basename "$CONFPKG"`
+        echo "Bundle-style configuration package not supported"
+        exit 1
+        #if [ -d "$CONFPKG/Contents/Resources/English.lproj" ]; then
+        #    eng_resources="$CONFPKG/Contents/Resources/English.lproj"
+        #elif [ -d "$CONFPKG/Contents/Resources/en.lproj" ]; then
+        #    eng_resources="$CONFPKG/Contents/Resources/en.lproj"
+        #else
+        #    echo "Can't find English.lproj or en.lproj in $CONFPKG/Contents/Resources"
+        #    exit 1
+        #fi
+        #CONFTITLE=`defaults read "$eng_resources/Description" IFPkgDescriptionTitle`
+        #CONFDESC=`defaults read "$eng_resources/Description" IFPkgDescriptionDescription`
+        #CONFID=`defaults read "$CONFPKG/Contents/Info" CFBundleIdentifier`
+        #CONFSIZE=`defaults read "$CONFPKG/Contents/Info" IFPkgFlagInstalledSize`
+        #CONFVERSION=`defaults read "$CONFPKG/Contents/Info" CFBundleShortVersionString`
+        #CONFBASENAME=`basename "$CONFPKG"`
     fi
     CONFOUTLINE="<line choice=\"config\"/>"
     CONFCHOICE="<choice id=\"config\" title=\"$CONFTITLE\" description=\"$CONFDESC\">
@@ -477,7 +485,7 @@ cat > "$DISTFILE" <<EOF
     <choice id="app" title="$APPTITLE" description="$APPDESC">
         <pkg-ref id="$PKGID.app"/>
     </choice>
-    <choice id="launchd" title="$LAUNCHDTITLE" description="$LAUNCHDDESC" start_selected='system.env.OS_INSTALL == 1 || system.compareVersions(my.target.receiptForIdentifier("$PKGID.launchd").version, "$LAUNCHDVERSION") != 0'>
+    <choice id="launchd" title="$LAUNCHDTITLE" description="$LAUNCHDDESC" start_selected='my.choice.packageUpgradeAction != "installed"'>
         <pkg-ref id="$PKGID.launchd"/>
     </choice>
     $CONFCHOICE

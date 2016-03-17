@@ -1,13 +1,13 @@
 #!/usr/bin/python
 # encoding: utf-8
 #
-# Copyright 2011-2014 Greg Neagle.
+# Copyright 2011-2016 Greg Neagle.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#      https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -88,6 +88,7 @@ def getManifestNames():
                 # don't process these
                 continue
             manifests.append(os.path.join(subdir, name).lstrip('/'))
+    manifests.sort()
     return manifests
 
 
@@ -107,6 +108,7 @@ def getCatalogs():
             pass
         else:
             catalogs.append(name)
+    catalogs.sort()
     return catalogs
 
 
@@ -402,7 +404,6 @@ def find(args):
                             if findtext.upper() in item.upper():
                                 print '%s: %s' % (name, item)
                                 count += 1
-                                break
                         except AttributeError, err:
                             pass
                 elif findtext.upper() in value.upper():
@@ -417,14 +418,13 @@ def find(args):
                             if findtext.upper() in item.upper():
                                 print '%s (%s): %s' % (name, key, item)
                                 count += 1
-                                break
                         except AttributeError, err:
                             pass
                 elif findtext.upper() in value.upper():
                     print '%s (%s): %s' % (name, key, value)
                     count += 1
 
-    print '%s items found.' % count
+    print '%s matches found.' % count
     return 0
 
 
@@ -882,6 +882,12 @@ def setUpTabCompleter():
 
 def handleSubcommand(args):
     '''Does all our subcommands'''
+	# check if any arguments are passed.  
+	# if not, list subcommands.
+    if len(args) < 1:
+	help(args)
+	return 2
+
     # strip leading hyphens and
     # replace embedded hyphens with underscores
     # so '--add-pkg' becomes 'add_pkg'
