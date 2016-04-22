@@ -1253,7 +1253,7 @@ def installedState(item_pl):
                     foundnewer = True
             except munkicommon.Error, errmsg:
                 # some problem with the installs data
-                munkicommon.display_error(str(errmsg))
+                munkicommon.display_error(unicode(errmsg))
                 # return 1 so we're marked as not needing to be installed
                 return 1
 
@@ -1271,7 +1271,7 @@ def installedState(item_pl):
                     foundnewer = True
             except munkicommon.Error, errmsg:
                 # some problem with the receipts data
-                munkicommon.display_error(str(errmsg))
+                munkicommon.display_error(unicode(errmsg))
                 # return 1 so we're marked as not needing to be installed
                 return 1
 
@@ -1327,7 +1327,7 @@ def someVersionInstalled(item_pl):
                     return False
             except munkicommon.Error, errmsg:
                 # some problem with the installs data
-                munkicommon.display_error(str(errmsg))
+                munkicommon.display_error(unicode(errmsg))
                 return False
 
     # if there is no 'installs' key, then we'll use receipt info
@@ -1341,7 +1341,7 @@ def someVersionInstalled(item_pl):
                     return False
             except munkicommon.Error, errmsg:
                 # some problem with the installs data
-                munkicommon.display_error(str(errmsg))
+                munkicommon.display_error(unicode(errmsg))
                 return False
 
     # if we got this far, we passed all the tests, so the item
@@ -1563,7 +1563,8 @@ def processManagedUpdate(manifestitem, cataloglist, installinfo):
     if someVersionInstalled(item_pl):
         # add to the list of processed managed_updates
         installinfo['managed_updates'].append(manifestitemname)
-        dummy_result = processInstall(manifestitem, cataloglist, installinfo)
+        dummy_result = processInstall(manifestitem, cataloglist, installinfo,
+                                      is_managed_update=True)
     else:
         munkicommon.display_debug1(
             '%s does not appear to be installed, so no managed updates...',
@@ -1627,7 +1628,9 @@ def processOptionalInstall(manifestitem, cataloglist, installinfo):
         iteminfo['needs_update'] = (installedState(item_pl) == 0)
     iteminfo['licensed_seat_info_available'] = item_pl.get(
         'licensed_seat_info_available', False)
-    iteminfo['uninstallable'] = item_pl.get('uninstallable', False)
+    iteminfo['uninstallable'] = (
+        item_pl.get('uninstallable', False)
+        and (item_pl.get('uninstall_method', '') != ''))
     iteminfo['installer_item_size'] = \
         item_pl.get('installer_item_size', 0)
     iteminfo['installed_size'] = item_pl.get(
@@ -1724,7 +1727,8 @@ def updateAvailableLicenseSeats(installinfo):
             item['licensed_seats_available'] = seats_available
 
 
-def processInstall(manifestitem, cataloglist, installinfo):
+def processInstall(manifestitem, cataloglist, installinfo,
+                   is_managed_update=False):
     """Processes a manifest item for install. Determines if it needs to be
     installed, and if so, if any items it is dependent on need to
     be installed first.  Installation detail is added to
@@ -1763,7 +1767,7 @@ def processInstall(manifestitem, cataloglist, installinfo):
             'No pkginfo found in catalogs: %s ',
             manifestitem, ', '.join(cataloglist))
         return False
-    elif manifestitemname in installinfo['managed_updates']:
+    elif is_managed_update:
         # we're processing this as a managed update, so don't
         # add it to the processed_installs list
         pass
@@ -1811,7 +1815,8 @@ def processInstall(manifestitem, cataloglist, installinfo):
                 '%s-%s requires %s. Getting info on %s...'
                 % (item_pl.get('name', manifestitemname),
                    item_pl.get('version', ''), item, item))
-            success = processInstall(item, cataloglist, installinfo)
+            success = processInstall(item, cataloglist, installinfo,
+                                     is_managed_update=is_managed_update)
             if not success:
                 dependenciesMet = False
 
@@ -1928,6 +1933,9 @@ def processInstall(manifestitem, cataloglist, installinfo):
                 # admin did not explicitly mark this item; let's determine if
                 # it's from Apple
                 if isAppleItem(item_pl):
+                    munkicommon.log(
+                        'Marking %s as apple_item - this will block '
+                        'Apple SUS updates' % iteminfo['name'])
                     iteminfo['apple_item'] = True
 
             installinfo['managed_installs'].append(iteminfo)
@@ -1958,7 +1966,8 @@ def processInstall(manifestitem, cataloglist, installinfo):
                 # call processInstall recursively so we get the
                 # latest version and dependencies
                 dummy_result = processInstall(
-                    update_item, cataloglist, installinfo)
+                    update_item, cataloglist, installinfo,
+                    is_managed_update=is_managed_update)
             return True
         except fetch.PackageVerificationError:
             munkicommon.display_warning(
@@ -2025,7 +2034,8 @@ def processInstall(manifestitem, cataloglist, installinfo):
             # call processInstall recursively so we get updates
             # and any dependencies
             dummy_result = processInstall(
-                update_item, cataloglist, installinfo)
+                update_item, cataloglist, installinfo,
+                is_managed_update=is_managed_update)
 
         return True
 
@@ -2469,8 +2479,9 @@ def getManifestData(manifestpath):
         if os.path.exists(manifestpath):
             try:
                 os.unlink(manifestpath)
-            except OSError, e:
-                munkicommon.display_error('Failed to delete plist: %s', str(e))
+            except OSError, err:
+                munkicommon.display_error(
+                    'Failed to delete plist: %s', unicode(err))
         else:
             munkicommon.display_error('plist does not exist.')
     return plist
@@ -2481,11 +2492,12 @@ def getManifestValueForKey(manifestpath, keyname):
     plist = getManifestData(manifestpath)
     try:
         return plist.get(keyname, None)
-    except AttributeError, e:
+    except AttributeError, err:
         munkicommon.display_error(
             'Failed to get manifest value for key: %s (%s)',
             manifestpath, keyname)
-        munkicommon.display_error('Manifest is likely corrupt: %s', str(e))
+        munkicommon.display_error(
+            'Manifest is likely corrupt: %s', unicode(err))
         return None
 
 
@@ -2628,8 +2640,8 @@ def getmanifest(partialurl, suppress_errors=False):
 
 def cleanUpManifests():
     """Removes any manifest files that are no longer in use by this client"""
-    manifest_dir = os.path.join(munkicommon.pref('ManagedInstallDir'),
-                               'manifests')
+    manifest_dir = os.path.join(
+        munkicommon.pref('ManagedInstallDir'), 'manifests')
 
     exceptions = [
         "SelfServeManifest"
@@ -2647,7 +2659,8 @@ def cleanUpManifests():
             if rel_path not in MANIFESTS.keys():
                 os.unlink(abs_path)
 
-        # Try and remove the directory (rmdir will fail if directory is not empty)
+        # Try to remove the directory
+        # (rmdir will fail if directory is not empty)
         try:
             if dirpath != manifest_dir:
                 os.rmdir(dirpath)
@@ -2848,13 +2861,13 @@ def download_icons(item_list):
         else:
             xattr_hash = 'nonexistent'
         icon_subdir = os.path.dirname(icon_path)
-        if not os.path.exists(icon_subdir):
+        if not os.path.isdir(icon_subdir):
             try:
                 os.makedirs(icon_subdir, 0755)
             except OSError, err:
                 munkicommon.display_error(
                     'Could not create %s' % icon_subdir)
-                continue
+                return
         if pkginfo_icon_hash != xattr_hash:
             item_name = item.get('display_name') or item['name']
             message = 'Getting icon %s for %s...' % (icon_name, item_name)
@@ -2913,7 +2926,7 @@ def download_client_resources():
     munkicommon.display_debug2(
         'Client resources base URL is: %s', resource_base_url)
     # make sure local resource directory exists
-    if not os.path.exists(resource_dir):
+    if not os.path.isdir(resource_dir):
         try:
             os.makedirs(resource_dir, 0755)
         except OSError, err:
